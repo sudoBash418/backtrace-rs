@@ -43,6 +43,67 @@ impl Mapping {
         })
     }
 
+    /// On Android, native libraries can be loaded directly from
+    /// an installed APK. For example, an app may load a library from
+    /// `/data/app/com.example/base.apk!/lib/x86_64/mylib.so`
+    #[cfg(all(target_os = "android", feature = "std"))]
+    pub fn new_android(path: &Path) -> Option<Mapping> {
+        use crate::std::io::Seek as _;
+        use super::mmap::Mmap;
+
+        fn split_combined_path(combined_path: &Path) -> Option<(&Path, &Path)> {
+            // find shortest possible APK prefix (path ending in `.apk!`)
+            let prefix_path = combined_path
+                .ancestors()
+                // convert to raw bytes
+                .map(|prefix| prefix.as_os_str().as_bytes())
+                // select prefixes with "embedded APK" ending
+                .filter(|&raw_prefix| raw_prefix.ends_with(b".apk!"))
+                // use the last (shortest) match
+                .last()?;
+
+            // trim trailing `!` from APK path
+            let apk_path = Path::new(OsStr::from_bytes(&prefix_path.split_last()?.1));
+
+            let inner_path = Path::new(OsStr::from_bytes(
+                &combined_path.as_os_str().as_bytes()[prefix_path.len()+1..],
+            ));
+
+            Some((apk_path, inner_path))
+        }
+
+        // check if library path points inside an APK file
+        if let Some((apk_path, inner_path)) = split_combined_path(path) {
+            // found APK-embedded library
+            let mut apk_archive = zip::ZipArchive::new(fs::File::open(apk_path).ok()?).ok()?;
+            let zip_entry = apk_archive.by_name(inner_path.to_str()?).ok()?;
+            // APK-embedded libraries should not be compressed; bail if this one is
+            if zip_entry.compression() != zip::CompressionMethod::STORE || zip_entry.compressed_size() != zip_entry.size() {
+                return None;
+            }
+
+            let lib_size = zip_entry.size();
+            let lib_offset = zip_entry.data_start();
+            drop(zip_entry);
+
+            let mut apk_file = apk_archive.into_inner();
+            apk_file.seek(std::io::SeekFrom::Start(0)).ok()?;
+
+            // make sure we don't mmap() past the end of the APK
+            assert!(apk_file.metadata().ok()?.len() >= lib_offset + lib_size);
+
+            // XXX: if `lib_offset` is not page-aligned, mmap will fault
+            let map = unsafe { Mmap::map(&apk_file, lib_size as usize, lib_offset as usize) }?;
+
+            Mapping::mk(map, |map, stash| {
+                Context::new(stash, Object::parse(&map)?, None, None)
+            })
+        } else {
+            // not an APK-embedded library, defer to standard method
+            Self::new(path)
+        }
+    }
+
     /// Load debuginfo from an external debug file.
     fn new_debug(original_path: &Path, path: PathBuf, crc: Option<u32>) -> Option<Mapping> {
         let map = super::mmap(&path)?;

@@ -187,7 +187,7 @@ impl<'data> Context<'data> {
 fn mmap(path: &Path) -> Option<Mmap> {
     let file = File::open(path).ok()?;
     let len = file.metadata().ok()?.len().try_into().ok()?;
-    unsafe { Mmap::map(&file, len) }
+    unsafe { Mmap::map(&file, len, 0) }
 }
 
 cfg_if::cfg_if! {
@@ -305,7 +305,13 @@ fn create_mapping(lib: &Library) -> Option<Mapping> {
 #[cfg(not(target_os = "aix"))]
 fn create_mapping(lib: &Library) -> Option<Mapping> {
     let name = &lib.name;
-    Mapping::new(name.as_ref())
+    cfg_if::cfg_if! {
+        if #[cfg(all(target_os = "android", feature = "std"))] {
+            Mapping::new_android(name.as_ref())
+        } else {
+            Mapping::new(name.as_ref())
+        }
+    }
 }
 
 // unsafe because this is required to be externally synchronized
