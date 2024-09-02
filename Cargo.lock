@@ -40,6 +40,7 @@ dependencies = [
  "dylib-dep",
  "libc",
  "libloading",
+ "memchr",
  "miniz_oxide",
  "object",
  "rustc-demangle",

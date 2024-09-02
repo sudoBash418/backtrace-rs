@@ -43,6 +43,33 @@ impl Mapping {
         })
     }
 
+    /// On Android, native libraries can be loaded directly from
+    /// an installed APK. For example, an app may load a library from
+    /// `/data/app/com.example/base.apk!/lib/x86_64/mylib.so`
+    ///
+    /// For one of these "APK-embedded" libraries, `apk_offset` will be
+    /// non-zero and `path` will be truncated to the APK's filepath
+    /// (see [super::libs_dl_iterate_phdr]).
+    #[cfg(target_os = "android")]
+    pub fn new_android(path: &Path, apk_offset: usize) -> Option<Mapping> {
+        // if APK offset is non-zero, we're dealing with an APK-embedded library
+        if apk_offset > 0 {
+            let file = fs::File::open(path).ok()?;
+            let len: usize = file.metadata().ok()?.len().try_into().ok()?;
+
+            // NOTE: we map the remainder of the entire APK instead of just the library so we don't have to determine its length
+            // XXX: if `file_offset` is not page-aligned, mmap will fault
+            let map = unsafe { super::mmap::Mmap::map(&file, len - apk_offset, apk_offset) }?;
+
+            Mapping::mk(map, |map, stash| {
+                Context::new(stash, Object::parse(&map)?, None, None)
+            })
+        } else {
+            // not an APK-embedded library, handle file as usual
+            Self::new(path)
+        }
+    }
+
     /// Load debuginfo from an external debug file.
     fn new_debug(original_path: &Path, path: PathBuf, crc: Option<u32>) -> Option<Mapping> {
         let map = super::mmap(&path)?;
