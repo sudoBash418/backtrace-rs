@@ -269,6 +269,8 @@ struct Cache {
 
 struct Library {
     name: OsString,
+    #[cfg(target_os = "android")]
+    zip_offset: usize,
     #[cfg(target_os = "aix")]
     /// On AIX, the library mmapped can be a member of a big-archive file.
     /// For example, with a big-archive named libfoo.a containing libbar.so,
@@ -295,17 +297,16 @@ struct LibrarySegment {
     len: usize,
 }
 
-#[cfg(target_os = "aix")]
 fn create_mapping(lib: &Library) -> Option<Mapping> {
-    let name = &lib.name;
-    let member_name = &lib.member_name;
-    Mapping::new(name.as_ref(), member_name)
-}
-
-#[cfg(not(target_os = "aix"))]
-fn create_mapping(lib: &Library) -> Option<Mapping> {
-    let name = &lib.name;
-    Mapping::new(name.as_ref())
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "aix")] {
+            Mapping::new(lib.name.as_ref(), &lib.member_name)
+        } else if #[cfg(target_os = "android")] {
+            Mapping::new_android(lib.name.as_ref(), lib.zip_offset)
+        } else {
+            Mapping::new(lib.name.as_ref())
+        }
+    }
 }
 
 // unsafe because this is required to be externally synchronized

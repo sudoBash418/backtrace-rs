@@ -43,6 +43,44 @@ impl Mapping {
         })
     }
 
+    /// On Android, shared objects can be loaded directly from a
+    /// ZIP archive. For example, an app may load a library from
+    /// `/data/app/com.example/base.apk!/lib/x86_64/mylib.so`
+    ///
+    /// For one of these "ZIP-embedded" libraries, `zip_offset` will be
+    /// non-zero (see [super::libs_dl_iterate_phdr]).
+    #[cfg(target_os = "android")]
+    pub fn new_android(path: &Path, zip_offset: usize) -> Option<Mapping> {
+        fn map_embedded_library(path: &Path, zip_offset: usize) -> Option<Mapping> {
+            // get path of ZIP archive (delimited by `!/`)
+            let raw_path = path.as_os_str().as_bytes();
+            let zip_path = raw_path
+                .windows(2)
+                .enumerate()
+                .find(|(_, chunk)| chunk == b"!/")
+                .map(|(index, _)| Path::new(OsStr::from_bytes(raw_path.split_at(index).0)))?;
+
+            let file = fs::File::open(zip_path).ok()?;
+            let len: usize = file.metadata().ok()?.len().try_into().ok()?;
+
+            // NOTE: we map the remainder of the entire archive instead of just the library so we don't have to determine its length
+            // NOTE: mmap will fail if `zip_offset` is not page-aligned
+            let map =
+                unsafe { super::mmap::Mmap::map_with_offset(&file, len - zip_offset, zip_offset) }?;
+
+            Mapping::mk(map, |map, stash| {
+                Context::new(stash, Object::parse(&map)?, None, None)
+            })
+        }
+
+        // if ZIP offset is non-zero, try mapping as a ZIP-embedded library
+        if zip_offset > 0 {
+            map_embedded_library(path, zip_offset).or_else(|| Self::new(path))
+        } else {
+            Self::new(path)
+        }
+    }
+
     /// Load debuginfo from an external debug file.
     fn new_debug(original_path: &Path, path: PathBuf, crc: Option<u32>) -> Option<Mapping> {
         let map = super::mmap(&path)?;

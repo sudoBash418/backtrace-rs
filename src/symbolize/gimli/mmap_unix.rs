@@ -29,6 +29,22 @@ impl Mmap {
         }
         Some(Mmap { ptr, len })
     }
+
+    #[cfg(target_os = "android")]
+    pub unsafe fn map_with_offset(file: &File, len: usize, offset: usize) -> Option<Mmap> {
+        let ptr = mmap64(
+            ptr::null_mut(),
+            len,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            file.as_raw_fd(),
+            offset.try_into().ok()?,
+        );
+        if ptr == libc::MAP_FAILED {
+            return None;
+        }
+        Some(Mmap { ptr, len })
+    }
 }
 
 impl Deref for Mmap {

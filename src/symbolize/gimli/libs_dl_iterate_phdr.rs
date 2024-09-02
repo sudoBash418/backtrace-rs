@@ -9,12 +9,21 @@ use super::mystd::os::unix::prelude::*;
 use super::{Library, LibrarySegment, OsString, Vec};
 use core::slice;
 
+struct CallbackData {
+    ret: Vec<Library>,
+    #[cfg(target_os = "android")]
+    maps: Option<Vec<super::parse_running_mmaps::MapsEntry>>,
+}
 pub(super) fn native_libraries() -> Vec<Library> {
-    let mut ret = Vec::new();
+    let mut cb_data = CallbackData {
+        ret: Vec::new(),
+        #[cfg(target_os = "android")]
+        maps: super::parse_running_mmaps::parse_maps().ok(),
+    };
     unsafe {
-        libc::dl_iterate_phdr(Some(callback), core::ptr::addr_of_mut!(ret).cast());
+        libc::dl_iterate_phdr(Some(callback), core::ptr::addr_of_mut!(cb_data).cast());
     }
-    return ret;
+    cb_data.ret
 }
 
 fn infer_current_exe(base_addr: usize) -> OsString {
@@ -50,7 +59,11 @@ unsafe extern "C" fn callback(
     let dlpi_phdr = unsafe { (*info).dlpi_phdr };
     let dlpi_phnum = unsafe { (*info).dlpi_phnum };
     // SAFETY: We assured this.
-    let libs = unsafe { &mut *vec.cast::<Vec<Library>>() };
+    let CallbackData {
+        ret: libs,
+        #[cfg(target_os = "android")]
+        maps,
+    } = unsafe { &mut *vec.cast::<CallbackData>() };
     // most implementations give us the main program first
     let is_main = libs.is_empty();
     // we may be statically linked, which means we are main and mostly one big blob of code
@@ -73,6 +86,22 @@ unsafe extern "C" fn callback(
             OsStr::from_bytes(unsafe { CStr::from_ptr(dlpi_name) }.to_bytes()).to_owned()
         }
     };
+    #[cfg(target_os = "android")]
+    let zip_offset = {
+        // only check for ZIP-embedded file if we have data from /proc/self/maps
+        maps.as_ref().and_then(|maps| {
+            // check if file is embedded within a ZIP archive by searching for `!/`
+            name.as_bytes()
+                .windows(2)
+                .find(|&chunk| chunk == b"!/")
+                .and_then(|_| {
+                    // find MapsEntry matching library's base address
+                    maps.iter()
+                        .find(|m| m.ip_matches(dlpi_addr as usize))
+                        .map(|m| m.offset())
+                })
+        })
+    };
     let headers = if dlpi_phdr.is_null() || dlpi_phnum == 0 {
         &[]
     } else {
@@ -81,6 +110,8 @@ unsafe extern "C" fn callback(
     };
     libs.push(Library {
         name,
+        #[cfg(target_os = "android")]
+        zip_offset: zip_offset.unwrap_or(0),
         segments: headers
             .iter()
             .map(|header| LibrarySegment {

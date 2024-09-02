@@ -76,6 +76,11 @@ impl MapsEntry {
     pub(super) fn ip_matches(&self, ip: usize) -> bool {
         self.address.0 <= ip && ip < self.address.1
     }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn offset(&self) -> usize {
+        self.offset
+    }
 }
 
 impl FromStr for MapsEntry {
