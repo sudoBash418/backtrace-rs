@@ -87,7 +87,7 @@ unsafe extern "C" fn callback(
         }
     };
     #[cfg(target_os = "android")]
-    let zip_offset = {
+    let zip_offset: Option<i64> = {
         // only check for ZIP-embedded file if we have data from /proc/self/maps
         maps.as_ref().and_then(|maps| {
             // check if file is embedded within a ZIP archive by searching for `!/`
@@ -98,7 +98,7 @@ unsafe extern "C" fn callback(
                     // find MapsEntry matching library's base address
                     maps.iter()
                         .find(|m| m.ip_matches(dlpi_addr as usize))
-                        .map(|m| m.offset())
+                        .and_then(|m| m.offset().try_into().ok())
                 })
         })
     };

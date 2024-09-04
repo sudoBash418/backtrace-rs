@@ -1,4 +1,4 @@
-use super::{mystd::io::Read, File};
+use super::{mystd::io::Read, mystd::io::Seek, mystd::io::SeekFrom, File};
 use alloc::vec::Vec;
 use core::ops::Deref;
 
@@ -7,10 +7,11 @@ pub struct Mmap {
 }
 
 impl Mmap {
-    pub unsafe fn map(mut file: &File, len: usize) -> Option<Mmap> {
+    pub unsafe fn map(mut file: &File, len: usize, offset: i64) -> Option<Mmap> {
         let mut mmap = Mmap {
             vec: Vec::with_capacity(len),
         };
+        file.seek(SeekFrom::Start(offset.try_into().ok()?));
         file.read_to_end(&mut mmap.vec).ok()?;
         Some(mmap)
     }

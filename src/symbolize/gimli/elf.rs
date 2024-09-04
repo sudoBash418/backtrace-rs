@@ -50,8 +50,8 @@ impl Mapping {
     /// For one of these "ZIP-embedded" libraries, `zip_offset` will be
     /// non-zero (see [super::libs_dl_iterate_phdr]).
     #[cfg(target_os = "android")]
-    pub fn new_android(path: &Path, zip_offset: usize) -> Option<Mapping> {
-        fn map_embedded_library(path: &Path, zip_offset: usize) -> Option<Mapping> {
+    pub fn new_android(path: &Path, zip_offset: i64) -> Option<Mapping> {
+        fn map_embedded_library(path: &Path, zip_offset: i64) -> Option<Mapping> {
             // get path of ZIP archive (delimited by `!/`)
             let raw_path = path.as_os_str().as_bytes();
             let zip_path = raw_path
@@ -65,8 +65,9 @@ impl Mapping {
 
             // NOTE: we map the remainder of the entire archive instead of just the library so we don't have to determine its length
             // NOTE: mmap will fail if `zip_offset` is not page-aligned
-            let map =
-                unsafe { super::mmap::Mmap::map_with_offset(&file, len - zip_offset, zip_offset) }?;
+            let map = unsafe {
+                super::mmap::Mmap::map(&file, len - usize::try_from(zip_offset).ok()?, zip_offset)
+            }?;
 
             Mapping::mk(map, |map, stash| {
                 Context::new(stash, Object::parse(&map)?, None, None)

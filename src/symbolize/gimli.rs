@@ -187,7 +187,7 @@ impl<'data> Context<'data> {
 fn mmap(path: &Path) -> Option<Mmap> {
     let file = File::open(path).ok()?;
     let len = file.metadata().ok()?.len().try_into().ok()?;
-    unsafe { Mmap::map(&file, len) }
+    unsafe { Mmap::map(&file, len, 0) }
 }
 
 cfg_if::cfg_if! {
@@ -270,7 +270,7 @@ struct Cache {
 struct Library {
     name: OsString,
     #[cfg(target_os = "android")]
-    zip_offset: usize,
+    zip_offset: i64,
     #[cfg(target_os = "aix")]
     /// On AIX, the library mmapped can be a member of a big-archive file.
     /// For example, with a big-archive named libfoo.a containing libbar.so,
