@@ -46,12 +46,12 @@ fn infer_current_exe(base_addr: usize) -> OsString {
 
 /// # Safety
 /// `info` must be a valid pointer.
-/// `vec` must be a valid pointer to `Vec<Library>`
+/// `data` must be a valid pointer to `CallbackData`.
 #[forbid(unsafe_op_in_unsafe_fn)]
 unsafe extern "C" fn callback(
     info: *mut libc::dl_phdr_info,
     _size: libc::size_t,
-    vec: *mut libc::c_void,
+    data: *mut libc::c_void,
 ) -> libc::c_int {
     // SAFETY: We are guaranteed these fields:
     let dlpi_addr = unsafe { (*info).dlpi_addr };
@@ -63,7 +63,7 @@ unsafe extern "C" fn callback(
         ret: libs,
         #[cfg(target_os = "android")]
         maps,
-    } = unsafe { &mut *vec.cast::<CallbackData>() };
+    } = unsafe { &mut *data.cast::<CallbackData>() };
     // most implementations give us the main program first
     let is_main = libs.is_empty();
     // we may be statically linked, which means we are main and mostly one big blob of code
